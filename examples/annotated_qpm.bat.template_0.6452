@@ -1,0 +1,85 @@
+%  Cosmological Parameters
+%----------------------------------------------------------------------------
+%
+GAMMA		0.55 % dlogD/dloga = \Omega_m^GAMMA: not used in the QPM code currently
+OMEGA_M		0.29 % z=0 matter density relative to the critical density
+SIGMA_8		0.8  % z=0 power spectrum amplitude
+RHO_CRIT	2.775E11		% h^2 M_sol/Mpc^3
+SPECTRAL_INDX	0.97 % power-law index of primordial power spectrum P(k)~k^SPECTRAL_INDX
+HUBBLE		0.7 % HUBBLE=H0/100. Used in transfer function calculation ONLY.
+OMEGA_B		0.046 % z=0 Baryon density relative to critical density
+DELTA_CRIT	1.686 % linear threshold for collapse of overdensity
+ITRANS		5 % Option Below
+% ITRANS 4 --> uses an input file (TF_file below) that has CMBFast-format output
+% ITRANS 5 --> uses the Eisenstein & Hu (1998?) transfer function
+TF_file		transfunc.WMAP3
+REDSHIFT	0.55
+
+
+% N-body simulation specifics
+%----------------------------------------------------------------------------
+
+DELTA_HALO	200 % overdensity with respect to MEAN density for defining halos
+BOX_SIZE	2560		% Mpc/h
+RESOLUTION	2		% BOX_SIZE/Npart^(1/3)
+
+
+% HOD Parameters
+%----------------------------------------------------------------------------
+% NB!! The final HOD parameters may not be the same as the input ones!
+%
+% IF M_min==0: The code assumes that what you want more than anything is to match the input GALAXY_DENSITY.
+% The HOD code will calculate M_min using the Tinker08 mass function, which may not exactly match 
+% that of the box. Thus, it will iterate until convergence on the input GALAXY_DENSITY. 
+% The parameters M1, M_cut, and M_min, are solved for,
+% keeping the RATIOS M1/M_min, and M_cut/M_min CONSTANT (thus preserving the overall shape 
+% of the HOD, just changing its mass scale until the proper density is achieved.
+%
+% IF M_min>0: The code WILL NOT ITERATE. It will simply use the HOD as specified, and you might not
+% get the number density you asked for.
+
+pdfc		2 % type of central occupation function "2" is:
+%    return(f*HOD.MaxCen*0.5*(1+erf((log10(m) - log10(HOD.M_min))/HOD.sigma_logM)));
+% you can see the other options in hod_functions.c, but recommend to stick with 2.
+
+pdfs		11 % type of satellite occupation function. "11" is:
+%    return(f*exp(-HOD.M_cut/m)*pow(m/HOD.M1,HOD.alpha)*
+%	   0.5*(1+erf((log10(m) - log10(HOD.M_min))/HOD.sigma_logM)));
+% so basically, you have an exponentially cut off power law that is multiplied 
+% by N_cen to make sure that N_sat<N_cen at all masses. 
+% Other options in hod_functions.c, but recommend to stick with 11.
+
+% The HOD parmaeters below are those used in the equations above.
+%
+M_min           0 
+M1              6.729412e+13
+M_max           1.00E+16
+M_cut           4.748894e+13
+alpha           1.1
+GALAXY_DENSITY  0.00041     
+sigma_logM 	0.2
+
+
+VBIAS		1  % Satellite galaxies only--> sigma_sats/sigma_halo = VBIAS
+VBIAS_C		0  % Central galaxies only--> sigma_cens/sigma_halo = VBIAS_C
+SIGV		100 % discussed below
+CVIR_FAC	1  % concentration factor of satellite galaxies for NFW halo c_sats/c_halo = CVIR_FAC
+EXCLUSION	4 % Not really used by QPM code currently
+
+% SIGV------------
+% The low-resolution PM simulations have difficulty in modeling small-scale nonlinearities 
+% that drive the 1-point velocity dispersion of dark matter particles. To compensate for this, 
+% a Gaussian random variable with std deviation SIGV is added to each PM dark matter particle 
+% (randomly drawn in each cartesian dimension). This value was obtained iteratively by comparing 
+% non-linear RSD in the mocks to DR10 data.
+%----------------------
+
+root_filename		a0.6452_NNNN % all output files begin with this prefix
+create_halos		1 % create the mock halo catalog 1/0
+populate_simulation	1 % populate the mock halo catalog with the above HOD parameters 1/0
+FOFHaloFile		/project/projectdirs/boss/galaxy/QPM/raw/pm_0.6452_NNNN.prop % the FOF halo file from the original PM simulation
+PBHaloFile		a0.6452_NNNN.PBHaloFile % name of halo file to be inputted for population (note that this means that you can have this filename be ANY, unrelated to the "root_filename"
+pmfile			/project/projectdirs/boss/galaxy/QPM/raw/pm_0.6452_NNNN.subsample % the sampled PM particles (assumes particles in FOF halos have been removed from list
+
+OUTPUT			1 % 1=wordy output. 0=minimal, 2=more.
+

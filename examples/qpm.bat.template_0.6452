@@ -1,0 +1,70 @@
+%  Cosmological Parameters
+%----------------------------------------------------------------------------
+%
+GAMMA		0.55 % not currently used
+OMEGA_M		0.29
+SIGMA_8		0.8
+RHO_CRIT	2.775E11		% h^2 M_sol/Mpc^3
+SPECTRAL_INDX	0.97
+HUBBLE		0.7
+OMEGA_B		0.046
+DELTA_CRIT	1.686
+ITRANS		5 % This is for Eisenstein & Hu 98.
+TF_file		transfunc.WMAP3 % This is only used if ITRANS==4 (uses CMBFast output format)
+REDSHIFT	0.55
+
+
+% N-body simulation specifics
+%----------------------------------------------------------------------------
+
+DELTA_HALO	200
+BOX_SIZE	2560		% Mpc/h
+RESOLUTION	2		% BOX_SIZE/Npart^(1/3)
+
+
+% HOD Parameters
+%----------------------------------------------------------------------------
+
+% If you make M_min>0, if will populate the simulation exactly as
+% specific by the HOD parameters. It is possible, of course, that the
+% number density will not be the same as GALAXY_DENSITY here in the
+% bat file. If you specify M_min>0, GALAXY_DENSITY is ignored. If you
+% specify M_min<0, then the code will shift the HOD to match the
+% specified GALAXY_DENSITY. This shifting is done to all mass scales
+% (M_min, M1, M_cut), thus the shape of the HOD remains the same.
+
+M_min           9.319035e+12
+M1              6.729412e+13
+M_max           1.00E+16
+M_cut           4.748894e+13
+alpha           1.1
+GALAXY_DENSITY  0.00041     
+
+sigma_logM 	0.2
+
+pdfs		11
+pdfc		2
+
+VBIAS		1
+VBIAS_C		0
+SIGV		100
+CVIR_FAC	1
+EXCLUSION	4
+
+% Tasks: The code can "create_halos" from a subsampled dark matter
+% distribution (which requires local densities as well), and it can
+% "populate_simulation" meaning it can fill the halos of the specific
+% HaloFile with galaxies following the HOD listed above. It can do
+% both, but just make sure that the HaloFile has the proper
+% name. "create_halo" creates a file called
+% [root_filename].HaloFile. "populate_simulation" creates a file
+% called [root_filename].mock.
+
+root_filename		a0.6452_NNNN
+create_halos		0
+populate_simulation	1
+HaloFile		a0.6452_NNNN.HaloFile
+pmfile			/project/projectdirs/boss/galaxy/QPM/raw/pm_0.6452_NNNN.subsample
+
+OUTPUT			1
+
