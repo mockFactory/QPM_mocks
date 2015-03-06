@@ -6,7 +6,7 @@
 
 The `mockFactory` is a collection of public code to help create mock galaxy catalogs for BOSS (and other surveys). This includes populating simulation halo catalogs (galaxy bias) and adding survey realism.
 
-This code was developed and utilized to create the QPM mocks (see the description at [wiki:BOSS/clustering/QPMmocks]).
+This code was developed and utilized to create the QPM mocks (see the description at [wiki:BOSS/clustering/QPMmocks] or QPMmocks_wiki herein).
 
 The code is available on the SDSS3 SVN repo through:
 {{{
