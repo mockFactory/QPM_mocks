@@ -33,7 +33,7 @@
 #define ind(a,b,c) (a)*n*n+(b)*n+(c)
 #define ALLOC3D(type,dim0,dim1,dim2) \
         (type***)a3alloc((unsigned)dim0,(unsigned)dim1,(unsigned)dim2,(unsigned)sizeof(type))
-#define NLATMAX 600      /* maximum lattice dimension */
+#define NLATMAX 1200      /* maximum lattice dimension */
 
 int ***i3tensor_2(long nrl, long nrh, long ncl, long nch, long ndl, long ndh);
 

@@ -1,4 +1,4 @@
-#include "nrutil.h"
+#include "../nrlib/nrutil.h"
 #include "stdlib.h"
 #include "stdio.h"
 
@@ -716,3 +716,4 @@ extern int SMF_CORRECTION;        // apply incompleteness correction to SMF mode
 extern int RESET_HALO_BIAS;
 extern int ASCII_OUTPUT;
 extern int NO_FOF_HALOS;
+extern float SUBFRAC; // to subsample the input PM files into an ascii file

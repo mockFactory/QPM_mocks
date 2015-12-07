@@ -123,3 +123,4 @@ int SMF_CORRECTION      = 0;
 int RESET_HALO_BIAS     = 1; 
 int ASCII_OUTPUT        = 0;
 int NO_FOF_HALOS        = 0;
+float SUBFRAC = -1;

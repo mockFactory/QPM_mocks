@@ -3,8 +3,8 @@
 NRLIB= nrlib
 
 CC=gcc
-CFLAGS=-O2 -I $(NRLIB)
-LINK= -lm 
+CFLAGS=-O2 -I $(NRLIB) -fopenmp
+LINK= -lm -fopenmp
 EXEC=QPM.mock
 
 # the list of NR routines that are required by this code
