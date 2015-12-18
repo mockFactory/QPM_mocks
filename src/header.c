@@ -124,3 +124,4 @@ int RESET_HALO_BIAS     = 1;
 int ASCII_OUTPUT        = 0;
 int NO_FOF_HALOS        = 0;
 float SUBFRAC = -1;
+double MASS_MIN = -1;

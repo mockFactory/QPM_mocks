@@ -48,6 +48,10 @@ void read_parameter_file(char *fname)
   strcpy(tag[nt],"create_halos");
   addr[nt]=&Task.create_halos;
   id[nt++]=INT;
+
+  strcpy(tag[nt],"MASS_MIN");
+  addr[nt]=&MASS_MIN;
+  id[nt++]=DOUBLE;
   
   SIGV = 0;
   strcpy(tag[nt],"SIGV");
@@ -187,6 +191,11 @@ void read_parameter_file(char *fname)
   addr[nt]=&Files.pmfile;
   id[nt++]=STRING;
 
+  Files.NumFiles = 1;
+  strcpy(tag[nt],"NumFiles");
+  addr[nt]=&Files.NumFiles;
+  id[nt++]=INT;
+
   strcpy(tag[nt],"root_filename");
   addr[nt]=&Task.root_filename;
   id[nt++]=STRING;
@@ -287,6 +296,8 @@ void read_parameter_file(char *fname)
 
   for(i=0;i<nt;i++)
     {      
+      if(!strcmp(tag[i],"NumFiles"))continue;
+      if(!strcmp(tag[i],"MASS_MIN"))continue;
       if(!strcmp(tag[i],"FOFHaloFile"))continue;
       if(!strcmp(tag[i],"PBHaloFile"))continue;
       if(!strcmp(tag[i],"NO_FOF_HALOS"))continue;

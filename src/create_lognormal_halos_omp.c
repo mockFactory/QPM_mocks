@@ -4,11 +4,16 @@
 #include <math.h>
 #include <time.h>
 #include <omp.h>
+#include <stdint.h>
 
 #include "header.h"
 
 #define NBINLOOKUP 10000
 #define cnint(x) ((x-floor(x)) < 0.5 ? floor(x) : ceil(x))
+#define SIG 0.1
+#define SIG2INV (1/(SIG*SIG))
+
+#define xPrhoMhalo(x,y) exp(-0.5*(x-y)*(x-y)*SIG2INV)
 
 
 /* Internal functions.
@@ -34,23 +39,25 @@ void free_i3tensor(int ***t, long nrl, long nrh, long ncl, long nch,
 void create_lognormal_halos()
 {
   FILE *fp,*fpa[9],*fp2,*fp4,*fpb[9],*fpc[9],*fps[9],*fpt,*fpblue, *fpsub, *fp_part,*fp3,*fp1;
-  int i,j,k,n,imass,n1,j_start=0,i1,galcnt[1000],halocnt[1000], nfof;
+  int j_start=0,i1,galcnt[1000],halocnt[1000], nfof;
   double mass,xg[3],vg[3],nsat,nc[10],ncen,mlo,mag,err1,err2,r,fac,sigv,mbar;
   char aa[1000];
-  float x1,xh[3],vh[3],vgf[3],vv;
+  float x1,xh[3],vh[3],vgf[3],vv,x1_;
   long IDUM3 = -445;
 
+  long i,j,k,n,n1,imass,ngal,j1,jstep,jstep_max = 6;
+
   float **galarr;
-  int *galid,id1=0,id2=0,j1;
+  int *galid,id1=0,id2=0;
   float dx,dy,dz,dr,drh,rv1,rv2,rmin,rmax, fred;
   float **haloarr;
-  int ngal,nsati[9],ALL_FILES=0,TRACK_GALAXIES=0,WARREN_MASS_CORRECTION=0,haloid;
+  int nsati[9],ALL_FILES=0,TRACK_GALAXIES=0,WARREN_MASS_CORRECTION=0,haloid;
 
   float *xt,*yt,*zt,*vxt,*vyt,*vzt;
   float lm, logMhalo, mu, sig;
 
   //static int nhalo, *used_halo, iuse_flag = 1;
-  int ihalo=0, nhalo, npart, idum, nmax, nadd;
+  long ihalo=0, nhalo, npart, idum, nmax, nadd;
   double min_halo_mass, max_halo_mass, nexp, delta, t0, t1;
 
   int SO_FILE = 0,
@@ -60,11 +67,12 @@ void create_lognormal_halos()
   double m1, m2, mfslope, rad, mstar, rproj, xs[20], vhalo, imag;
   long IDUM=-555;
   float xx[20], xd[3], xv[3], *subi, *submass, *temp, fraction, dbar;
-  int ii;
+  long ii, ntotread=0, np1, ncounter=0;
 
   // Gadget stuff
   float *xp, *yp, *zp, *vxp, *vyp, *vzp, *mvect, mlim;
-  int np, npcheck, *iii;
+  int npcheck, *iii;
+  long np;
   char filename[1000], fname[1000];
 
   // nbrsfind
@@ -89,11 +97,11 @@ void create_lognormal_halos()
   } tpmhdr;
   float *positions, vfac;
 
-  float logprho, dlnMbin, prob, *pnorm, logM, lnRhoMin, lnRhoMax, *rhohist, logrho, *mux, m0;
+  float logprho, dlnMbin, prob, *pnorm, logM, lnRhoMin, lnRhoMax, *rhohist, logrho, *mux, *mux1,m0;
   int NmassBin=256, jbin, NrhoBin=2048, ibin;
   double avg, ntar, ntot;
 
-  int ichunk, nchunk, nchunk_reads, nread, ntotread=0;
+  long ichunk, nchunk, nchunk_reads, nread;
 
   // openmp stuff
   int irank=0,nrank=1;
@@ -102,30 +110,6 @@ void create_lognormal_halos()
   unsigned int iseed = -555;
   struct drand48_data drand_buf;
 
-/*
-  t0 = second();
-  np = 100000000;
-  xp = vector(0,np-1);
-#pragma omp parallel private(nrank, irank, i, x1, IDUM, iseed)
-  {
-    nrank = omp_get_num_threads();
-    fprintf(stdout, "rank: %d %d\n",irank=omp_get_thread_num(),nrank);
-
-    iseed = iseed - irank;
-    //#pragma omp for
-    for(i=irank;i<np;i+=nrank)
-      {
-	x1 = rand_r(&iseed);
-	xp[i] = exp(-x1*x1);
-      }
-
-    j = nrank;
-  }
-  t1 = second();
-  printf("TIME %d %.2f %.2f\n",j,timediff(t0,t1),timediff(t0,t1)/j);
-  exit(0);
-*/
-  
 
   lnRhoMin = log(1.0E-3);
   lnRhoMax = log(100);
@@ -135,24 +119,41 @@ void create_lognormal_halos()
   ASCII_OUTPUT = 0;
 
   
-  MASS_MIN = log(1.0E12);
+  if(MASS_MIN<=0)
+    MASS_MIN = log(1.0E12);
+  else
+    MASS_MIN = log(MASS_MIN);
   MASS_MAX = log(HOD.M_max); 
+  printf("LNHalos> mass min, mass max: %e %e\n",exp(MASS_MIN), exp(MASS_MAX));
+
   NmassBin = (int)((MASS_MAX-MASS_MIN)/0.05+1);
   dlnMbin = (MASS_MAX-MASS_MIN)/NmassBin; 
   pnorm = vector(0,NmassBin-1);
 
 
-  fp = fopen(Files.pmfile,"r");
-  fprintf(stderr,"%s\n",Files.pmfile);
 
-  // get header
-  fread(&idum,sizeof(int),1,fp);
-  fread(&idum,sizeof(int),1,fp);
-  fread(&tpmhdr,1,idum,fp);
-  np = tpmhdr.npart;
-  printf("particles in TPM file: %d %d\n",tpmhdr.npart,np);
-  printf("aexp: %f\n",tpmhdr.aa);
-  fflush(stdout);
+  // get the total number of particles in all files
+  np = 0;
+  for(i=0;i<Files.NumFiles;++i)
+    {
+      if(Files.NumFiles>1)
+	sprintf(fname,"%s.%02d",Files.pmfile,i);
+      else
+	sprintf(fname,"%s",Files.pmfile);
+      fp = fopen(fname,"r");
+      fprintf(stderr,"%s\n",fname);
+      // get header
+      fread(&idum,sizeof(int),1,fp);
+      fread(&idum,sizeof(int),1,fp);
+      fread(&tpmhdr,1,idum,fp);
+      np += tpmhdr.npart;
+      printf("particles in TPM file (%d): %d %ld %d %d\n",i,tpmhdr.npart,np,idum,sizeof(tpmhdr));
+      printf("aexp: %f\n",tpmhdr.aa);
+      fflush(stdout);
+      fclose(fp);
+    }
+  printf("LNHalos: total number of partciles: %ld\n",np);
+
   xp = vector(1,np);
   yp = vector(1,np);
   zp = vector(1,np);
@@ -164,81 +165,122 @@ void create_lognormal_halos()
   fflush(stdout);
 
   // read in the data in 10 discrete chunks
-  nchunk = np/10;
-  positions = malloc(((long)nchunk)*3*(long)sizeof(float));
-  printf("done allocation of temp array. nchunk= %d %d\n",nchunk,np);
-  fflush(stdout);
 
-  nchunk_reads = np/nchunk + 1;
-  if(np%nchunk==0)nchunk_reads--;
-
-  ii = 1;
-  for(ichunk=1;ichunk<=nchunk_reads;++ichunk)
+  ncounter = 0;
+  for(i1=0;i1<Files.NumFiles;++i1)
     {
-      nread = nchunk;
-      if(ntotread + nread>np) nread = np-ntotread;
-      fprintf(stderr,"%d %d %d %d %d\n",ichunk,ii,nread,ntotread,np);
-      fread(positions,(long)sizeof(float),3*(long)nread,fp);
+      if(Files.NumFiles>1)
+	sprintf(fname,"%s.%02d",Files.pmfile,i1);
+      else
+	sprintf(fname,"%s",Files.pmfile);
+      fp = fopen(fname,"r");
+      fprintf(stderr,"%s\n",fname);
+      // get header
+      fread(&idum,sizeof(int),1,fp);
+      fread(&idum,sizeof(int),1,fp);
+      //fread(&tpmhdr,1,idum,fp);
+      fread(&tpmhdr,sizeof(tpmhdr),1,fp);
+
+
+      np1 = tpmhdr.npart;
+      nchunk = tpmhdr.npart/10;
+      positions = malloc(((long)nchunk)*3*(long)sizeof(float));
+      nchunk_reads = tpmhdr.npart/nchunk + 1;
+      if(tpmhdr.npart%nchunk==0)nchunk_reads--;
+      printf("done allocation of temp array. nchunk= %d %d %d %ld\n",
+	     nchunk,nchunk_reads,tpmhdr.npart,np);
+      fflush(stdout);
       
-      j = -1;
-      for(i=1;i<=nread;++i)
+      ntotread = 0;
+      ii = ncounter + 1;
+      for(ichunk=1;ichunk<=nchunk_reads;++ichunk)
 	{
-	  xp[ii] =positions[++j]*BOX_SIZE;
-	  yp[ii] =positions[++j]*BOX_SIZE;
-	  zp[ii] =positions[++j]*BOX_SIZE;
-	  //if(drand48()<0.0001)printf("TEST %f %f %f %d %d\n",xp[ii],yp[ii],zp[ii],ii,np);
-	  ii++;
+	  nread = nchunk;
+	  if(ntotread + nread>np1) nread = np1-ntotread;
+	  fprintf(stderr,"%d %ld %ld %ld %d %ld\n",ichunk,ii,nread,ntotread,tpmhdr.npart,np);
+	  fread(positions,(long)sizeof(float),3*(long)nread,fp);
+	  
+	  j = -1;
+	  for(i=1;i<=nread;++i)
+	    {
+	      xp[ii] =positions[++j]*BOX_SIZE;
+	      yp[ii] =positions[++j]*BOX_SIZE;
+	      zp[ii] =positions[++j]*BOX_SIZE;
+	      //if(drand48()<0.0001)printf("TEST %f %f %f %d %d\n",xp[ii],yp[ii],zp[ii],ii,np);
+	      ii++;
+	    }
+	  ntotread += nread;
 	}
-      ntotread += nread;
-    }
-  fprintf(stderr,"Read %d positions\n",ntotread);
-
-  // now do the same thing for the velocities
-  ii = 1;
-  ntotread = 0;
-  vfac = sqrt(OMEGA_M*pow(1+REDSHIFT,3.0)+(1-OMEGA_M))*100/(1+REDSHIFT);
-  if(SIGV>0)
-    fprintf(stdout,"Adding SIGV=%f random motions to all particles\n",SIGV);
-  for(ichunk=1;ichunk<=nchunk_reads;++ichunk)
-    {
-      fprintf(stderr,"velread: chunk %d/%d\n",ichunk,nchunk_reads);
-      nread = nchunk;
-      if(ntotread + nread>np) nread = np-ntotread;
-      fread(positions,(long)sizeof(float),3*(long)nread,fp);
+      fprintf(stderr,"Read %ld positions (%ld total out of %ld)\n",ntotread,ii-1,np);
       
-      j = -1;
-      for(i=1;i<=nread;++i)
+
+      // now do the same thing for the velocities
+      ii = ncounter + 1;
+      ntotread = 0;
+      vfac = sqrt(OMEGA_M*pow(1+REDSHIFT,3.0)+(1-OMEGA_M))*100/(1+REDSHIFT);
+      if(SIGV>0)
+	fprintf(stdout,"Adding SIGV=%f random motions to all particles\n",SIGV);
+      for(ichunk=1;ichunk<=nchunk_reads;++ichunk)
 	{
-	  vxp[ii] =positions[++j]*BOX_SIZE*vfac + gasdev(&IDUM)*SIGV;
-	  vyp[ii] =positions[++j]*BOX_SIZE*vfac + gasdev(&IDUM)*SIGV;
-	  vzp[ii] =positions[++j]*BOX_SIZE*vfac + gasdev(&IDUM)*SIGV;
-	  ii++;
+	  fprintf(stderr,"velread: chunk %d/%d\n",ichunk,nchunk_reads);
+	  nread = nchunk;
+	  if(ntotread + nread>np1) nread = np1-ntotread;
+	  fread(positions,(long)sizeof(float),3*(long)nread,fp);
+	  
+	  j = -1;
+	  for(i=1;i<=nread;++i)
+	    {
+	      vxp[ii] =positions[++j]*BOX_SIZE*vfac + gasdev(&IDUM)*SIGV;
+	      vyp[ii] =positions[++j]*BOX_SIZE*vfac + gasdev(&IDUM)*SIGV;
+	      vzp[ii] =positions[++j]*BOX_SIZE*vfac + gasdev(&IDUM)*SIGV;
+	      ii++;
+	    }
+	  ntotread += nread;
 	}
-      ntotread += nread;
+      fprintf(stderr,"Read %d velocities\n",ntotread);
+      free(positions);
+
+      positions = malloc(((long)np1)*(long)sizeof(float));
+      fread(positions,sizeof(float),np1,fp);
+      for(ii=ncounter+1, i=0 ;i<np1;++ii, ++i)
+	density[ii] = positions[i];
+      free(positions);
+
+      fclose(fp);
+      i = ncounter + 1;
+      //fprintf(stdout,"%f %f %f %f %f %f %f %ld\n",xp[i],yp[i],zp[i],vxp[i],vyp[i],vzp[i],density[i],i); 
+      ncounter += np1;
     }
-  fprintf(stderr,"Read %d velocities\n",ntotread);
-
-
-  fread(&density[1],sizeof(float),np,fp);
-  fclose(fp);
-  free(positions);
 
   if(SUBFRAC>0)
     {
-      if(ARGC>4)
-	fp = fopen(ARGV[4],"w");
+      if(ARGC>3)
+	fp2 = fopen(ARGV[3],"w");
       else 
-	fp = fopen("pm_ascii.dat","w");
+	fp2 = fopen("pm_ascii.dat","w");
       n = 0;
+      fprintf(stderr,"Opening file for random sample. Subfrac= %f\n",SUBFRAC);
+
+      if(SUBFRAC>1)
+	{
+	  for(i=1;i<=np;++i)
+	    { 
+	      if(xp[i]<100 && yp[i]<100 && zp[i]<10) {
+		n++;
+		fprintf(fp2,"%f %f %f %f %f %f %f %ld\n",xp[i],yp[i],zp[i],vxp[i],vyp[i],vzp[i],density[i],n); }
+	    }
+	  exit(0);
+	}
+
       for(i=1;i<=np;++i)
 	if(drand48()<SUBFRAC) { n++;
-	  fprintf(fp,"%f %f %f %f %f %f %f %d\n",xp[i],yp[i],zp[i],vxp[i],vyp[i],vzp[i],density[i],n); }
+	  fprintf(fp2,"%f %f %f %f %f %f %f %d\n",xp[i],yp[i],zp[i],vxp[i],vyp[i],vzp[i],density[i],n); }
       fprintf(stdout,"selected %d particles\n",n);
       exit(0);
     }
 
   //REDSHIFT = 0; // do we keep this? TODO
-  RESET_COSMOLOGY++;
+  //RESET_COSMOLOGY++;
 
   // how many halos do we need?
   nexp = qromo(func_halo_density,MASS_MIN,MASS_MAX,midpnt)*BOX_SIZE*BOX_SIZE*BOX_SIZE;
@@ -246,9 +288,7 @@ void create_lognormal_halos()
   fprintf(stderr,"Fraction of particles to use: %e\n",fraction);
 
   // how many halos are we going to output
-  x1 = qromo(func_halo_density,log(1.0E12),MASS_MAX,midpnt)*BOX_SIZE*BOX_SIZE*BOX_SIZE;
   nhalo = nexp*1.01; 
-  fprintf(stderr,"Number of halos (approximately) to output (logM>12): %e (%f)\n",x1,x1/np);
   
   // allocate memory for output
   xxh = vector(1,nhalo);
@@ -267,7 +307,7 @@ void create_lognormal_halos()
     if (density[j]>=0) {
       logprho = log(density[j]);
       if (logprho>lnRhoMin && logprho<lnRhoMax) {
-	ibin=(int)( NrhoBin*(log(density[j])-lnRhoMin)/(lnRhoMax-lnRhoMin) );
+	ibin=(int)( NrhoBin*(logprho-lnRhoMin)/(lnRhoMax-lnRhoMin) );
 	rhohist[ibin] += 1;
 	ii++;
       }
@@ -275,13 +315,31 @@ void create_lognormal_halos()
   }
   fprintf(stderr,"Done getting histogram of densities. %d %d\n",np,ii);
 
+  // notes: when i put this inside the parallel region, it never terminates. when i put this outside the parallel region, it doesn't work. WTF. idea: try putting it inside but only executing for itask==0?
+    mux = vector(0,NmassBin-1);
+    for(i=0;i<NmassBin;++i)
+      {
+	// my function, z=1.5
+	lm = exp(MASS_MIN+dlnMbin*(i+0.5));
+	if(REDSHIFT>1)
+	  {
+	    m0 = pow(10,13.25);
+	    mux[i] = 1 + 0.13*log10(lm/m0) + pow(lm/m0,0.35)/(1+pow(lm/m0,-0.7)) - 0.5;
+	  }
+	else
+	  {
+	    m0 = pow(10,13.36);
+	    mux[i] = 1 + 0.08*log10(lm/m0) + pow(lm/m0,0.35)/(1+pow(lm/m0,-0.7)) - 0.5;
+	  }
+	printf("MUX %d %e %e %e\n",i,lm,log10(lm),mux[i]);
+      }
+
   // get the normalization for each bin
 
   // First compute the "average" number of particles selected per mass bin,
   // then the normalization is the ratio to what we want.
   for (jbin=0; jbin<NmassBin; jbin++) {
     logM = MASS_MIN+dlnMbin*(jbin+0.5);
-    if(logM<log(1e12))continue;
     //ntar = exp(nofm->val(logM))*(MASS_MAX-MASS_MIN)/NmassBin * cc->vol; //density?
     ntar = qromo(func_halo_density, logM-0.5*dlnMbin, logM+0.5*dlnMbin, midpnt)*
       BOX_SIZE*BOX_SIZE*BOX_SIZE;
@@ -289,15 +347,16 @@ void create_lognormal_halos()
     avg  = 1e-30;
     for ( ibin=0; ibin<NrhoBin; ibin++) {
       logrho= lnRhoMin+(ibin+0.5)*(lnRhoMax-lnRhoMin)/NrhoBin;
-      avg += PrhoMhalo(logrho,logM)*rhohist[ibin];
+      avg += xPrhoMhalo(logrho,mux[jbin])*rhohist[ibin];
     }
     pnorm[jbin]=ntar/avg;
     printf("NORM: %d %e %e %e %e %e %e\n",jbin,exp(logM),pnorm[jbin],
-	   PrhoMhalo(log(0.5),logM),PrhoMhalo(log(1),logM),
-	   PrhoMhalo(log(2),logM),PrhoMhalo(log(4),logM));
+	   xPrhoMhalo(log(0.5),mux[jbin]),xPrhoMhalo(log(1),mux[jbin]),
+    	   xPrhoMhalo(log(2),mux[jbin]),xPrhoMhalo(log(4),mux[jbin]));
     if (pnorm[jbin]>1.0) {
       fprintf(stderr,"Error in normalization for bin %d %e\n",jbin,pnorm[jbin]);
       fprintf(stderr,"%e %e %e\n",ntar, avg, exp(logM));
+      pnorm[jbin]=1;
       //exit(1);
     }
   }
@@ -322,74 +381,73 @@ void create_lognormal_halos()
   //np = 10000000;
   //OUTPUT = 0;
 
-  // notes: when i put this inside the parallel region, it never terminates. when i put this outside the parallel region, it doesn't work. WTF. idea: try putting it inside but only executing for itask==0?
-    mux = vector(0,NmassBin-1);
-    for(i=0;i<NmassBin-1;++i)
-      {
-	lm = MASS_MIN+dlnMbin*(i+0.5);
-	logMx[i] = lm;
-	mux[i] = 0.4863-0.0007793*lm+0.07161*lm*lm; // martin's function
-	// my function, z=1.5
-	lm = exp(logMx[i]);
-	m0 = pow(10,13.25);
-	mux[i] = 1 + 0.13*log10(lm/m0) + pow(lm/m0,0.35)/(1+pow(lm/m0,-0.7)) - 0.5;
-	//printf("%d %e %e %e\n",i,lm,logMx[i]/log(10),mux[i]);
-      }
-
+  for(i=0;i<NmassBin;++i)
+    {
+      lm = MASS_MIN+dlnMbin*(i+0.5);
+      logMx[i] = lm;
+      //mux[i] = 0.4863-0.0007793*lm+0.07161*lm*lm; // martin's function
+      // my function, z=1.5
+      //lm = exp(logMx[i]);
+      //m0 = pow(10,13.25);
+      //mux[i] = 1 + 0.13*log10(lm/m0) + pow(lm/m0,0.35)/(1+pow(lm/m0,-0.7)) - 0.5;
+      //printf("%d %e %e %e\n",i,lm,logMx[i]/log(10),mux[i]);
+    }
+  fflush(stdout);
 
   nmax = 0;
   sig = 1/0.1;
-#pragma omp parallel private(ii, logM, logprho, jbin, prob, irank, nrank, j, lm, mu,x1, iseed, sig, xran, drand_buf) \
-  shared(np, xp, yp, zp, vxp, vyp, vzp, mvect, dvect, rvir, density, xxh, yxh, zxh, vxh, vyh, vzh,nhalo,pnorm,pnormx,mux)
+#pragma omp parallel private(ii, logM, logprho, jbin, prob, irank, nrank, j, lm, mu,x1, iseed, sig, xran, drand_buf,i,mux, mux1) \
+  shared(np, xp, yp, zp, vxp, vyp, vzp, mvect, dvect, rvir, density, xxh, yxh, zxh, vxh, vyh, vzh,nhalo,pnorm,pnormx, logMx)
   {
     nrank = omp_get_num_threads();
-    pnormx = matrix(0,nrank-1,0,NmassBin-1);
-    for(i=0;i<nrank;++i)
-      for(j=0;j<NmassBin;++j)
-	pnormx[i][j] = pnorm[j];
-
-    #pragma omp master 
-    {
-      mux = vector(0,NmassBin-1);
-      for(i=0;i<NmassBin-1;++i)
-	{
-	  lm = MASS_MIN+dlnMbin*(i+0.5);
-	  logMx[i] = lm;
-	  mux[i] = 0.4863-0.0007793*lm+0.07161*lm*lm; // martin's function
-	  // my function, z=1.5
-	  lm = exp(logMx[i]);
-	  m0 = pow(10,13.25);
-	  mux[i] = 1 + 0.13*log10(lm/m0) + pow(lm/m0,0.35)/(1+pow(lm/m0,-0.7)) - 0.5;
-	  //printf("%d %e %e %e\n",i,lm,logMx[i]/log(10),mux[i]);
-	}
-    }
-    #pragma omp barrier
-
-
     fprintf(stderr, "rank: %d %d\n",irank=omp_get_thread_num(),nrank);
     iseed = iseed - irank;
     srand48_r (iseed, &drand_buf);
+
+    mux1 = vector(0,NmassBin-1);
+    for(i=0;i<NmassBin;++i)
+      {
+	lm = exp(MASS_MIN+dlnMbin*(i+0.5));
+	if(REDSHIFT>1)
+	  {
+	    m0 = pow(10,13.25);
+	    mux1[i] = 1 + 0.13*log10(lm/m0) + pow(lm/m0,0.35)/(1+pow(lm/m0,-0.7)) - 0.5;
+	  }
+	else
+	  {
+	    m0 = pow(10,13.36);
+	    mux1[i] = 1 + 0.08*log10(lm/m0) + pow(lm/m0,0.35)/(1+pow(lm/m0,-0.7)) - 0.5;
+	  }
+	//printf("BOO1 %d %d %e %e\n",irank,i,lm,mux1[i]);
+      }
+    #pragma omp barrier
 
     ii = irank+1;
 
     for(j=ii;j<=np;j+=nrank) {
       if( (j%1000000==0)&&(OUTPUT) ){ 
-	drand48_r (&drand_buf, &xran);
-	fprintf(stderr,"%d %e %e %d %f %e\n",j,nexp,j*1./np,jbin,ii*1./(j),xran); }
-    if(density[j]<0){ printf("ZERO %d %f\n",j,density[j]); fflush(stdout); }
+	fprintf(stderr,"%ld %e %e %d %f\n",j,nexp,j*1./np,jbin,ii*1./(j)); }
+    if(density[j]<0){ printf("ZERO %ld %f\n",j,density[j]); fflush(stdout); }
     if (density[j]>0) {
       logprho = log(density[j]);
+
       for ( jbin=NmassBin-1; jbin>=0; jbin--) {
 	//logM = MASS_MIN+dlnMbin*(jbin+0.5);
 	//prob = PrhoMhalo(logprho,logM) * pnorm[jbin];
 
-	mu=mux[jbin];// 0.4863-0.0007793*lm+0.07161*lm*lm; //martin's version
-	sig = 0.1;
-	x1=(logprho-mu)/sig;
-	prob=exp(-0.5*x1*x1)*pnorm[jbin];
+	//mu=mux1[jbin];// 0.4863-0.0007793*lm+0.07161*lm*lm; //martin's version
+	//sig = 0.1;
+	//x1=(logprho-mu)/sig;
+	//prob=exp(-0.5*x1*x1)*pnorm[jbin];
 
-	if (prob>=1.0) {
-	  fprintf(stderr,"Out-of-bounds in create.\n");
+	prob = xPrhoMhalo(mux1[jbin],logprho)*pnorm[jbin];
+	/*
+	if(!irank) fprintf(stdout,"%d %e %e %e %e %e %e %e %e %e\n",
+			   jbin,mux1[jbin],mu,logprho,logMx[jbin]/log(10),prob,pnorm[jbin],x1,exp(-0.5*x1*x1),xPrhoMhalo(mu,logprho));
+	if(!irank && !jbin)exit(0);
+	*/
+	if (prob>1.0) {
+	  fprintf(stderr,"Out-of-bounds in create. %e %e %e %e\n",prob,mux1[jbin],logprho,pnorm[jbin]);
 	  exit(1);
 	}
 	drand48_r(&drand_buf, &xran);
@@ -406,7 +464,10 @@ void create_lognormal_halos()
 	  mvect[ii] = exp(logMx[jbin]+(xran-0.5)*dlnMbin);
 	  dvect[ii] = density[j];
 	  rvir[ii] = pow(4*mvect[ii]/(3*OMEGA_M*RHO_CRIT*DELTA_HALO*PI),THIRD);
-	  //printf("BOO %d %d %d %e %e %e %d\n",irank, j, jbin, logprho, logM, prob, ii);
+	  drand48_r(&drand_buf, &xran);
+	  
+	  if(xran<-0.0001)
+	    printf("BOO %d %d %d %e %e %e %d\n",irank, j, jbin, logprho, logM, prob, ii);
 	  ii+=nrank;
 
 	  //	  fprintf(stdout,"HALO %d %d %e %e %e %e %e %e %e %e %e\n",j,ii,mvect[ii],rvir[ii],dvect[ii],
@@ -479,8 +540,6 @@ void create_lognormal_halos()
 
   /* Now we need to remove the overlapping halos.
    */
-  indx=malloc(nhalo*sizeof(int));
-  rsqr=malloc(nhalo*sizeof(float));
   nmesh=0;
   rmax = 3;
   rcube = BOX_SIZE;
@@ -501,31 +560,45 @@ void create_lognormal_halos()
   sort2(nhalo,mass2,id);
   fprintf(stderr,"PBhalos> Done sorting the halos\n");
 
-  for(ii=1;ii<=nhalo;++ii)
-    {
-      i = id[ii];
-      nbrmax=nhalo;
-      rmax = rvir[i];
-      if(imerge[i])continue;
-      //printf("%d %e %e %e\n",i,xxh[i],yxh[i],zxh[i]);fflush(stdout);
-      nbrsfind2(0.0,rcube,rmax,nmesh,xxh[i],yxh[i],zxh[i],&nbrmax,indx,rsqr,
-		&xxh[1],&yxh[1],&zxh[1],meshparts,meshstart,i);
-      for(j1=0;j1<nbrmax;++j1)
-	indx[j1]++;
-      for(j1=0;j1<nbrmax;++j1)
-	{
-	  /* Let's check our indices
-	   */
-	  if(indx[j1]==i) {
-	    continue; }
-	  icnt++;
-	  j = indx[j1];
-	  if(mvect[i]>mvect[j])imerge[j]=1;
-	  else imerge[i]=1;
-	  //printf("%d %d %d %f %f %f %f %f %f\n",icnt,i,j,xxh[i],yxh[i],zxh[i],xxh[j],yxh[j],zxh[j]);
-	  fflush(stdout);
-	}
-    }
+#pragma omp parallel private(ii, i, nbrmax, rmax, j1, icnt, j, indx, rsqr, irank, nrank)
+  {
+    // allocate these internally
+    indx=malloc(nhalo*sizeof(int));
+    rsqr=malloc(nhalo*sizeof(float));
+
+   irank=omp_get_thread_num() + 1;
+   nrank = omp_get_num_threads();
+
+   for(ii=irank;ii<=nhalo;ii+=nrank)
+     {
+       i = id[ii];
+       nbrmax=nhalo;
+       rmax = rvir[i];
+       if(imerge[i])continue;
+       //printf("%d %e %e %e\n",i,xxh[i],yxh[i],zxh[i]);fflush(stdout);
+       nbrsfind2(0.0,rcube,rmax,nmesh,xxh[i],yxh[i],zxh[i],&nbrmax,indx,rsqr,
+		 &xxh[1],&yxh[1],&zxh[1],meshparts,meshstart,i);
+       for(j1=0;j1<nbrmax;++j1)
+	 indx[j1]++;
+       for(j1=0;j1<nbrmax;++j1)
+	 {
+	   /* Let's check our indices
+	    */
+	   if(indx[j1]==i) {
+	     continue; }
+	   icnt++;
+	   j = indx[j1];
+	   if(mvect[i]>mvect[j])imerge[j]=1;
+	   else imerge[i]=1;
+	   //printf("%d %d %d %f %f %f %f %f %f\n",icnt,i,j,xxh[i],yxh[i],zxh[i],xxh[j],yxh[j],zxh[j]);
+	   //fflush(stdout);
+	 }
+     }
+  }
+   #pragma omp barrier
+
+  for(icnt=0,i=1;i<=nhalo;++i)
+    if(imerge[i])icnt++;
   fprintf(stderr,"LNHalos> Removing %d overlapping halos\n",icnt);
 
   j = 0;
@@ -598,7 +671,7 @@ void create_lognormal_halos()
     }
   fclose(fp3);
   fprintf(stderr,"PBhalos> done with creating LNHaloFile.\n");
-  
+  exit(0);
 }
 
 
