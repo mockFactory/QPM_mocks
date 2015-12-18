@@ -543,6 +543,7 @@ extern struct file_parameters {
   char ParticleFile[1000];
   char ParticleDensityFile[1000];
   char pmfile[1000];
+  int NumFiles;
   char FOFHaloFile[1000];
   char PBHaloFile[1000];
 } Files;
@@ -717,3 +718,4 @@ extern int RESET_HALO_BIAS;
 extern int ASCII_OUTPUT;
 extern int NO_FOF_HALOS;
 extern float SUBFRAC; // to subsample the input PM files into an ascii file
+extern double MASS_MIN; // minimum halo mass scale to output
