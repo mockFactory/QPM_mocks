@@ -35,6 +35,7 @@ void meshlink2(int np1,int *nmesh,float smin,float smax,float rmax,float *x1,flo
 	       int **meshparts,int ****meshstart,int meshfac);
 void free_i3tensor(int ***t, long nrl, long nrh, long ncl, long nch,
 		   long ndl, long ndh);
+int ftread(char *ptr,unsigned size, unsigned nitems,FILE *stream);
 
 void create_lognormal_halos()
 {
@@ -87,6 +88,11 @@ void create_lognormal_halos()
   float *fofmass, *rvir, min_fofmass, p, rr, *iotemp, *dvect, *mass2;
   int skipflag, skipflag2, *numgrp, igrp, *numgrp2, *imerge, *id, icnt=0, nhalo_tmp;
 
+  // cpm stuff
+  float *fdat, znow;
+  int *idat;
+  
+
   //TPM input
   struct tpmhdr1 {
     int npart;
@@ -131,7 +137,60 @@ void create_lognormal_halos()
   pnorm = vector(0,NmassBin-1);
 
 
+  // if we're reading in from the CPM code, check here.
+  if(Files.NumFiles>=0) goto TPM_INPUT;
 
+  sprintf(fname,"%s",Files.pmfile);
+  fp = fopen(fname,"r");
+  fprintf(stderr,"%s\n",fname);
+
+  idat=(int *)calloc(5,sizeof(int));
+  fdat=(float *)calloc(9,sizeof(float));
+
+  ftread(idat,sizeof(int),5,fp);
+  ftread(fdat,sizeof(float),9,fp);
+  np=idat[1];
+   
+  printf("LNHalos: total number of partciles: %ld\n",np);
+
+  xp = vector(1,np);
+  yp = vector(1,np);
+  zp = vector(1,np);
+  vxp = vector(1,np);
+  vyp = vector(1,np);
+  vzp = vector(1,np);
+  density = vector(1,np);
+  printf("done allocation.\n");
+  fflush(stdout);
+
+  ftread(&znow,sizeof(float),1,fp) ;
+  ftread(&xp[1],sizeof(float),np,fp) ;
+  ftread(&yp[1],sizeof(float),np,fp) ;
+  ftread(&zp[1],sizeof(float),np,fp) ;
+  ftread(&vxp[1],sizeof(float),np,fp) ;
+  ftread(&vyp[1],sizeof(float),np,fp) ;
+  ftread(&vzp[1],sizeof(float),np,fp) ;
+  fclose(fp);
+
+  // add in the artificial dispersion to the particle velocities
+  for(i=1;i<=np;++i)
+    {
+      vxp[i] += gasdev(&IDUM)*SIGV;
+      vyp[i] += gasdev(&IDUM)*SIGV;
+      vzp[i] += gasdev(&IDUM)*SIGV;
+    }
+
+  // now get the density file
+  sprintf(fname,"%s.den",Files.pmfile);
+  fp = fopen(fname,"r");
+  fprintf(stderr,"%s\n",fname);
+  ftread(&density[1],sizeof(float),np,fp) ;
+  fclose(fp);
+  fprintf(stderr,"here\n");
+
+  goto SKIP_TPM;
+
+ TPM_INPUT:
   // get the total number of particles in all files
   np = 0;
   for(i=0;i<Files.NumFiles;++i)
@@ -252,6 +311,8 @@ void create_lognormal_halos()
       ncounter += np1;
     }
 
+ SKIP_TPM:
+
   if(SUBFRAC>0)
     {
       if(ARGC>3)
@@ -324,7 +385,8 @@ void create_lognormal_halos()
 	if(REDSHIFT>1)
 	  {
 	    m0 = pow(10,13.25);
-	    mux[i] = 1 + 0.13*log10(lm/m0) + pow(lm/m0,0.35)/(1+pow(lm/m0,-0.7)) - 0.5;
+	    //mux[i] = 1 + 0.13*log10(lm/m0) + pow(lm/m0,0.35)/(1+pow(lm/m0,-0.7)) - 0.5;
+	    mux[i] = 1 + 0.115*log10(lm/m0) + pow(lm/m0,0.35)/(1+pow(lm/m0,-0.7)) - 0.5;
 	  }
 	else
 	  {
@@ -367,7 +429,8 @@ void create_lognormal_halos()
    * masses via their densities.
    */
   fprintf(stderr,"%d\n",nrank);
-  logMx = vector(0,nrank-1);
+  //logMx = vector(0,nrank-1); // Tinker is confused why this is nrank and not NmassBin
+  logMx = vector(0,NmassBin-1); // JLT
   iix = ivector(0,nrank-1);
   for(i=0;i<nrank;++i)
     iix[i] = -1;
@@ -380,6 +443,7 @@ void create_lognormal_halos()
   t0 = second();
   //np = 10000000;
   //OUTPUT = 0;
+  muh(NmassBin);
 
   for(i=0;i<NmassBin;++i)
     {
@@ -393,13 +457,16 @@ void create_lognormal_halos()
       //printf("%d %e %e %e\n",i,lm,logMx[i]/log(10),mux[i]);
     }
   fflush(stdout);
+  muh(0);
 
   nmax = 0;
   sig = 1/0.1;
 #pragma omp parallel private(ii, logM, logprho, jbin, prob, irank, nrank, j, lm, mu,x1, iseed, sig, xran, drand_buf,i,mux, mux1) \
   shared(np, xp, yp, zp, vxp, vyp, vzp, mvect, dvect, rvir, density, xxh, yxh, zxh, vxh, vyh, vzh,nhalo,pnorm,pnormx, logMx)
   {
+    muh(1);
     nrank = omp_get_num_threads();
+    muh(2);
     fprintf(stderr, "rank: %d %d\n",irank=omp_get_thread_num(),nrank);
     iseed = iseed - irank;
     srand48_r (iseed, &drand_buf);
@@ -411,7 +478,8 @@ void create_lognormal_halos()
 	if(REDSHIFT>1)
 	  {
 	    m0 = pow(10,13.25);
-	    mux1[i] = 1 + 0.13*log10(lm/m0) + pow(lm/m0,0.35)/(1+pow(lm/m0,-0.7)) - 0.5;
+	    //mux1[i] = 1 + 0.13*log10(lm/m0) + pow(lm/m0,0.35)/(1+pow(lm/m0,-0.7)) - 0.5;
+	    mux1[i] = 1 + 0.115*log10(lm/m0) + pow(lm/m0,0.35)/(1+pow(lm/m0,-0.7)) - 0.5;
 	  }
 	else
 	  {
